@@ -24,3 +24,6 @@ jobs:
       - name: Build container
         run: |
           docker build . -t s1ephen/react-client:v1.1
+      - name: Docker push
+        run: |
+          docker push s1ephen/react-client:v1.1
