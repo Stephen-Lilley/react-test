@@ -1,0 +1,19 @@
+# Builds and upload new docker image
+
+steps:
+- id: &BuildImages Build Images
+  name: gcr.io/cloud-builders/docker
+  args: ['build', '-t', 'eu.gcr.io/$PROJECT_ID/react-app:$SHORT_SHA', '.']
+
+- id: &TagImages Tag Images
+  name: gcr.io/cloud-builders/docker
+  entrypoint: '/bin/bash'
+  args: ['-c', "docker tag eu.gcr.io/$PROJECT_ID/react-app:$SHORT_SHA eu.gcr.io/$PROJECT_ID/react-app:latest"]
+
+- id: &PushImages Push Images
+  name: 'gcr.io/cloud-builders/docker'
+  args: ["push", "eu.gcr.io/$PROJECT_ID/react-app:$SHORT_SHA"] #, "eu.gcr.io/$PROJECT_ID/react-app:latest"]
+  # waitFor: ['samplr-build']
+images: [
+  'eu.gcr.io/$PROJECT_ID/react-app'
+]
