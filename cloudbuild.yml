@@ -1,19 +1,48 @@
-# Builds and upload new docker image
-
 steps:
-- id: &BuildImages Build Images
-  name: gcr.io/cloud-builders/docker
-  args: ['build', '-t', 'eu.gcr.io/$PROJECT_ID/react-app:$SHORT_SHA', '.']
+# slack deployment status
+- name: 'gcr.io/cloud-builders/curl'
+  args: [ '-X', 'POST', '-H', 'Content-type: application/json', '--data', 
+          '{"text":"`eu.gcr.io/$PROJECT_ID/$_DEPLOYMENT:$BRANCH_NAME$TAG_NAME` build started!"}', '${_WEBHOOK_URL}' ]
 
-- id: &TagImages Tag Images
-  name: gcr.io/cloud-builders/docker
-  entrypoint: '/bin/bash'
-  args: ['-c', "docker tag eu.gcr.io/$PROJECT_ID/react-app:$SHORT_SHA eu.gcr.io/$PROJECT_ID/react-app:latest"]
+# build docker image
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'build',
+            '-t', 'eu.gcr.io/$PROJECT_ID/$_DEPLOYMENT:$BRANCH_NAME$SHORT_SHA', '.' ]
 
-- id: &PushImages Push Images
-  name: 'gcr.io/cloud-builders/docker'
-  args: ["push", "eu.gcr.io/$PROJECT_ID/react-app:$SHORT_SHA"] #, "eu.gcr.io/$PROJECT_ID/react-app:latest"]
-  # waitFor: ['samplr-build']
-images: [
-  'eu.gcr.io/$PROJECT_ID/react-app'
-]
+# push docker image to the repository
+- name: 'gcr.io/cloud-builders/docker'
+  args: [ 'push', 'eu.gcr.io/$PROJECT_ID/$_DEPLOYMENT:$BRANCH_NAME$SHORT_SHA' ]
+
+# patch kubernetes deployment to trigger rolling update
+- name: 'gcr.io/cloud-builders/kubectl'
+  args: [ 'patch', 'deployment', '${_DEPLOYMENT}', '-n', '${_NAMESPACE}', '-p',
+          '{"spec": {"template": {"metadata": {"annotations": {"build":"$BUILD_ID"}}, "spec": {"initContainers": [{"name": "app","image": "eu.gcr.io/$PROJECT_ID/$_DEPLOYMENT:$BRANCH_NAME$SHORT_SHA"}]}}}}' ]
+  env:
+  # required K8s cluster env variables
+  - 'CLOUDSDK_COMPUTE_ZONE=${_K8S_ZONE}'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=${_K8S_CLUSTER}'
+
+# check rolling deployment status
+- name: 'gcr.io/cloud-builders/kubectl'
+  args: [ '-n', '${_NAMESPACE}', 'rollout', 'status', 'deploy/${_DEPLOYMENT}' ]
+  env:
+  # required K8s cluster env variables
+  - 'CLOUDSDK_COMPUTE_ZONE=${_K8S_ZONE}'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=${_K8S_CLUSTER}'
+
+# slack deployment status
+- name: 'gcr.io/cloud-builders/curl'
+  args: [ '-X', 'POST', '-H', 'Content-type: application/json', '--data', 
+          '{"text":"${_DEPLOYMENT} deployment completed!"}', '${_WEBHOOK_URL}' ]
+
+# store artifact
+images: ['gcr.io/$PROJECT_ID/$_DEPLOYMENT:$BRANCH_NAME$SHORT_SHA']
+
+# arguments
+substitutions:
+    _K8S_ZONE:      react-app       # K8s zone
+    _K8S_CLUSTER:   atd             # K8s cluster name
+    _NAMESPACE:     react           # K8s namespace
+    _DEPLOYMENT:    react-app       # K8s deployment name
+    _WEBHOOK_URL:   https://hooks.slack.com/services/T77K9NPFG/B01L4TZR91U/K9iLzXbUHf4wbyCDVuIZU  # slack notifications
+#    _OAUTH_TOKEN:   composer_github_oauth_token # access to private code repos
